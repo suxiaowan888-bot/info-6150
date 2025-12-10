@@ -1,0 +1,241 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Form Builder</title>
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body>
+  <div id="root"></div>
+
+  <script type="text/babel">
+    const { useState, useReducer, useContext, createContext, useMemo, memo } = React;
+
+    // REDUX STORE
+    const FormContext = createContext();
+    const DispatchContext = createContext();
+
+    function reducer(state, action) {
+      switch (action.type) {
+        case 'ADD': return [...state, action.field];
+        case 'DELETE': return state.filter(f => f.id !== action.id);
+        case 'UPDATE': return state.map(f => f.id === action.id ? {...f, ...action.data} : f);
+        default: return state;
+      }
+    }
+
+    // CONTEXT 
+    const UIContext = createContext();
+
+    // PROVIDERS
+    function FormProvider({ children }) {
+      const [fields, dispatch] = useReducer(reducer, []);
+
+      React.useEffect(() => {
+        const saved = localStorage.getItem('fields');
+        if (saved) JSON.parse(saved).forEach(f => dispatch({type: 'ADD', field: f}));
+      }, []);
+
+      React.useEffect(() => {
+        localStorage.setItem('fields', JSON.stringify(fields));
+      }, [fields]);
+
+      return (
+        <FormContext.Provider value={fields}>
+          <DispatchContext.Provider value={dispatch}>
+            {children}
+          </DispatchContext.Provider>
+        </FormContext.Provider>
+      );
+    }
+
+    function UIProvider({ children }) {
+      const [mode, setMode] = useState('edit');
+      const [selected, setSelected] = useState(null);
+      
+      
+      return (
+        <UIContext.Provider value={{mode, setMode, selected, setSelected}}>
+          {children}
+        </UIContext.Provider>
+      );
+    }
+
+    
+    function useFields() {
+      return useContext(FormContext);
+    }
+
+    function useDispatch() {
+      return useContext(DispatchContext);
+    }
+
+    function useUI() {
+      return useContext(UIContext);
+    }
+
+    function useField(id) {
+      const fields = useFields();
+      return useMemo(() => fields.find(f => f.id === id), [fields, id]);
+    }
+
+    // COMPONENTS
+    
+   
+    function FieldItem({ field }) {
+      const dispatch = useDispatch();
+      const {selected, setSelected} = useUI();
+
+      return (
+        <div 
+          onClick={() => setSelected(field.id)}
+          className={`p-4 mb-2 border rounded cursor-pointer ${
+            selected === field.id ? 'border-blue-500 bg-blue-50' : 'border-gray-300'
+          }`}
+        >
+          <div className="flex justify-between">
+            <div>
+              <div className="font-bold">{field.label}</div>
+              <div className="text-sm text-gray-500">{field.type}</div>
+            </div>
+            <button 
+              onClick={(e) => {e.stopPropagation(); dispatch({type: 'DELETE', id: field.id});}}
+              className="px-3 py-1 bg-red-500 text-white rounded"
+            >
+              Delete
+            </button>
+          </div>
+        </div>
+      );
+    }
+
+    const Editor = memo(() => {
+      const {selected} = useUI();
+      const field = useField(selected);
+      const dispatch = useDispatch();
+      const [label, setLabel] = useState('');
+
+      React.useEffect(() => {
+        if (field) setLabel(field.label);
+      }, [field]);
+
+      if (!field) return <div className="p-6 text-gray-500">Select a field</div>;
+
+      return (
+        <div className="p-6 border-l">
+          <h3 className="font-bold mb-4">Edit Field</h3>
+          <input 
+            value={label}
+            onChange={(e) => setLabel(e.target.value)}
+            className="w-full p-2 border rounded mb-4"
+          />
+          <button 
+            onClick={() => dispatch({type: 'UPDATE', id: field.id, data: {label}})}
+            className="w-full bg-blue-600 text-white p-2 rounded"
+          >
+            Save
+          </button>
+        </div>
+      );
+    });
+
+    function EditMode() {
+      const fields = useFields();
+      const dispatch = useDispatch();
+
+      const addField = (type) => {
+        dispatch({type: 'ADD', field: {id: Date.now(), type, label: `New ${type}`}});
+      };
+
+      return (
+        <div className="flex h-full">
+          <div className="flex-1 p-6">
+            <h2 className="text-2xl font-bold mb-4">Form Builder</h2>
+            <div className="mb-4 space-x-2">
+              <button onClick={() => addField('text')} className="px-4 py-2 bg-white border rounded">+ Text</button>
+              <button onClick={() => addField('email')} className="px-4 py-2 bg-white border rounded">+ Email</button>
+            </div>
+            {fields.length === 0 ? (
+              <div className="text-center py-12 text-gray-500">No fields</div>
+            ) : (
+              fields.map(f => <FieldItem key={f.id} field={f} />)
+            )}
+          </div>
+          <div className="w-80"><Editor /></div>
+        </div>
+      );
+    }
+
+    function PreviewMode() {
+      const fields = useFields();
+
+      return (
+        <div className="max-w-2xl mx-auto p-6">
+          <h2 className="text-2xl font-bold mb-6">Preview</h2>
+          {fields.length === 0 ? (
+            <div className="text-center py-12 text-gray-500">No fields</div>
+          ) : (
+            <div className="space-y-4">
+              {fields.map(f => (
+                <div key={f.id}>
+                  <label className="block mb-1">{f.label}</label>
+                  <input type="text" className="w-full p-2 border rounded" />
+                </div>
+              ))}
+              <button className="w-full bg-green-600 text-white p-3 rounded">Submit</button>
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    // ROUTER
+    function App() {
+      const {mode, setMode} = useUI();
+
+      return (
+        <div className="h-screen flex flex-col">
+          <header className="bg-white border-b p-4">
+            <div className="flex justify-between items-center">
+              <h1 className="text-xl font-bold">Form Builder</h1>
+              <div className="space-x-2">
+                <button 
+                  onClick={() => setMode('edit')}
+                  className={`px-4 py-2 rounded ${mode === 'edit' ? 'bg-blue-600 text-white' : 'bg-gray-200'}`}
+                >
+                  Edit
+                </button>
+                <button 
+                  onClick={() => setMode('preview')}
+                  className={`px-4 py-2 rounded ${mode === 'preview' ? 'bg-blue-600 text-white' : 'bg-gray-200'}`}
+                >
+                  Preview
+                </button>
+              </div>
+            </div>
+          </header>
+          <main className="flex-1 overflow-auto">
+            {mode === 'edit' ? <EditMode /> : <PreviewMode />}
+          </main>
+        </div>
+      );
+    }
+
+    function Root() {
+      return (
+        <FormProvider>
+          <UIProvider>
+            <App />
+          </UIProvider>
+        </FormProvider>
+      );
+    }
+
+    ReactDOM.render(<Root />, document.getElementById('root'));
+  </script>
+</body>
+</html>
